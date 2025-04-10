@@ -15,6 +15,8 @@ import tempfile
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+ALLOWED_USERS = os.getenv("ALLOWED_USERS").split(",")
+
 # Initialize the services
 upload_service = UploadServiceFactory.create()
 auth_service = AuthenticationService(secret_key=os.getenv("JWT_SECRET"))
@@ -35,8 +37,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Available commands:\n\n"
         "/start - Start the bot\n"
         "/help - Show this help message\n"
-        "/generate_token - Generate a JWT token\n"
-        "/verify_token - Verify a JWT token\n\n"
         "You can also send me photos to upload them to S3."
     )
 
@@ -92,6 +92,9 @@ async def verify_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Define the upload handler
 async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await authenticate_user(update, context):
+        await update.message.reply_text("⛔You are not authorized to use this bot.")
+        return
     try:
         # Get the photo file
         photo_file = await context.bot.get_file(update.message.photo[-1].file_id)
@@ -125,6 +128,15 @@ async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error uploading photo: {e}")
         await update.message.reply_text(f"❌ Error uploading photo: {str(e)}")
+
+# Authenticate the user
+async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE)->bool:
+    if update.effective_user.id not in ALLOWED_USERS:
+        await update.message.reply_text("You are not authorized to use this bot.")
+        return False
+    return True
+    
+    
 
 # Define the main function
 def main():
