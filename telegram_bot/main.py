@@ -114,7 +114,8 @@ async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_file_path = temp_file.name
         
         # Upload the temporary file to S3
-        url = upload_service.upload_file(temp_file_path, update.message.photo[-1].file_id)
+        file_name = f"{update.message.photo[-1].file_id}{file_extension}"
+        url = upload_service.upload_file(temp_file_path,file_name)
         
         # Clean up the temporary file
         os.unlink(temp_file_path)
