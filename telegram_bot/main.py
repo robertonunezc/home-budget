@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import os
 import logging
 import io
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -104,8 +105,19 @@ async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Reset the file pointer to the beginning
         file_data.seek(0)
         
-        # Upload the photo file to S3
-        url = upload_service.upload_file(file_data, update.message.photo[-1].file_id)
+        # Create a temporary file to store the photo
+        # Get the original file extension from the file ID (e.g., .jpg, .png)
+        file_extension = os.path.splitext(photo_file.file_path)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            # Write the BytesIO content to the temporary file
+            temp_file.write(file_data.read())
+            temp_file_path = temp_file.name
+        
+        # Upload the temporary file to S3
+        url = upload_service.upload_file(temp_file_path, update.message.photo[-1].file_id)
+        
+        # Clean up the temporary file
+        os.unlink(temp_file_path)
         
         # Send the URL back to the user
         await update.message.reply_text(f"Photo uploaded successfully! 🎉\n\nURL: {url}")
