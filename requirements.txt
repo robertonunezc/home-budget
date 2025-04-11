@@ -7,5 +7,4 @@ python-telegram-bot
 requests
 pytest
 python-jose[cryptography]
-
-
+tesseract
