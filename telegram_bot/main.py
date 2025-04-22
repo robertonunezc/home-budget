@@ -125,6 +125,7 @@ async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Send the URL back to the user
         await update.message.reply_text(f"Photo uploaded successfully! 🎉\n\nURL: {url}")
+        await update.message.reply_text("start extracting text from the photo")
     except Exception as e:
         logger.error(f"Error uploading photo: {e}")
         await update.message.reply_text(f"❌ Error uploading photo: {str(e)}")

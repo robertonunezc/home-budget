@@ -8,3 +8,10 @@ requests
 pytest
 python-jose[cryptography]
 tesseract
+pytesseract
+Pillow
+opencv-python
+paddleocr
+numpy
+setuptools
+openai
