@@ -1,8 +1,13 @@
-import openai
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 import base64
 
 # Set your API key
-openai.api_key = "YOUR_OPENAI_API_KEY"
 
 # Load the image and encode it as base64
 def encode_image_to_base64(image_path):
@@ -13,27 +18,26 @@ def encode_image_to_base64(image_path):
 def extract_receipt_text(image_path):
     base64_image = encode_image_to_base64(image_path)
 
-    response = openai.ChatCompletion.create(
-        model="gpt-4-vision-preview",
-        messages=[
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=[
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Extract all readable text from this receipt and try to structure it as a list of items with name and price if possible."},
-                    {"type": "image_url", "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                        "detail": "high"
-                    }},
-                ]
+                    { "type": "input_text", "text": "Extract all readable text from this receipt and try to structure it as a list of items with name and price if possible." },
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:image/jpeg;base64,{base64_image}",
+                    },
+                ],
             }
         ],
-        max_tokens=2000,
     )
-
-    return response['choices'][0]['message']['content']
+    return response.output_text
 
 # Example usage
 if __name__ == "__main__":
-    receipt_text = extract_receipt_text("tickets/w1.jpg")
+    receipt_text = extract_receipt_text("tickets/w2.jpg")
     print(receipt_text)
 21
