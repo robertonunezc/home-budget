@@ -92,38 +92,35 @@ async def verify_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Define the upload handler
 async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await authenticate_user(update, context):
-        await update.message.reply_text("⛔You are not authorized to use this bot.")
-        return
+    # if not await authenticate_user(update, context):
+    #     await update.message.reply_text("⛔You are not authorized to use this bot.")
+    #     return
     try:
         # Get the photo file
         photo_file = await context.bot.get_file(update.message.photo[-1].file_id)
         
-        # Create a BytesIO object to store the file
         file_data = io.BytesIO()
         
-        # Download the photo file to the BytesIO object
         await photo_file.download_to_memory(out=file_data)
         
-        # Reset the file pointer to the beginning
         file_data.seek(0)
         
         # Create a temporary file to store the photo
         # Get the original file extension from the file ID (e.g., .jpg, .png)
         file_extension = os.path.splitext(photo_file.file_path)[1]
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
-            # Write the BytesIO content to the temporary file
             temp_file.write(file_data.read())
             temp_file_path = temp_file.name
         
-        # Upload the temporary file to S3
         file_name = f"{update.message.photo[-1].file_id}{file_extension}"
         url = upload_service.upload_file(temp_file_path,file_name)
-        
-        # Clean up the temporary file
+        # save the file info to the database
+        # download the file 
+        # extract text from the file
+        # save info to the database
+        # Delete the temporary file 
         os.unlink(temp_file_path)
         
-        # Send the URL back to the user
         await update.message.reply_text(f"Photo uploaded successfully! 🎉\n\nURL: {url}")
         await update.message.reply_text("start extracting text from the photo")
     except Exception as e:

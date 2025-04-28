@@ -29,7 +29,21 @@ class UploadService(ABC):
             Exception: For other upload errors
         """
         pass
-
+    
+    @abstractmethod
+    def download_file(self, object_name, download_path):
+        """
+        Download a file from the storage service.
+        
+        Args:
+            object_name (str): Name of the file in the storage service
+            download_path (str): Path to save the downloaded file
+            
+        Raises:
+            FileNotFoundError: If the file doesn't exist
+            Exception: For other download errors
+        """
+        pass
 class AwsUploadService(UploadService):
     """
     Implementation of UploadService for AWS S3.
@@ -88,7 +102,28 @@ class AwsUploadService(UploadService):
         except Exception as e:
             logging.error(f"Error uploading file to S3: {str(e)}")
             raise
-
+    
+    def download_file(self, object_name, download_path):
+        """
+        Download a file from AWS S3.
+        
+        Args:
+            object_name (str): Name of the file in S3
+            download_path (str): Path to save the downloaded file
+            
+        Raises:
+            FileNotFoundError: If the file doesn't exist
+            Exception: For other download errors
+        """
+        try:
+            s3_key = f"uploads/tickets/{object_name}"
+            return self.s3.download_file(self.bucket_name, s3_key, download_path)
+        except FileNotFoundError:
+            logging.error(f"File not found in S3: {object_name}")
+            raise
+        except Exception as e:
+            logging.error(f"Error downloading file from S3: {str(e)}")
+            raise
 
 
 
