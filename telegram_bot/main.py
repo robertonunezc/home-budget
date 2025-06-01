@@ -4,6 +4,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from services.upload.upload import UploadServiceFactory
 from services.authentication.authenticate import AuthenticationService
+from services.store_data.store_data import StoreDataServiceFactory
+from entities.receipt import Receipt
 from jose import jwt
 from datetime import datetime, timedelta
 import os
@@ -91,7 +93,7 @@ async def verify_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Token verification failed: {str(e)}")
 
 # Define the upload handler
-async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # if not await authenticate_user(update, context):
     #     await update.message.reply_text("⛔You are not authorized to use this bot.")
     #     return
@@ -115,6 +117,17 @@ async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_name = f"{update.message.photo[-1].file_id}{file_extension}"
         url = upload_service.upload_file(temp_file_path,file_name)
         # save the file info to the database
+        store_data_service = StoreDataServiceFactory.create()
+
+        if update.message:
+            user = (
+                update.message.from_user.username or
+                update.message.from_user.first_name or
+                f"user_{update.message.from_user.id}"
+            )
+        else:
+            user = 'anonymous'
+        store_data_service.save(Receipt(user_id=user, image_url=url))
         # download the file 
         # extract text from the file
         # save info to the database
@@ -124,8 +137,8 @@ async def upload_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Photo uploaded successfully! 🎉\n\nURL: {url}")
         await update.message.reply_text("start extracting text from the photo")
     except Exception as e:
-        logger.error(f"Error uploading photo: {e}")
-        await update.message.reply_text(f"❌ Error uploading photo: {str(e)}")
+        logger.error(f"Error processing photo: {e}")
+        await update.message.reply_text(f"❌ Error processing photo: {str(e)}")
 
 # Authenticate the user
 async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE)->bool:
@@ -148,7 +161,7 @@ def main():
     application.add_handler(CommandHandler("verify_token", verify_token))
     
     # Add the upload handler
-    application.add_handler(MessageHandler(filters.PHOTO, upload_photo))
+    application.add_handler(MessageHandler(filters.PHOTO, upload_picture))
     
     # Start the bot
     logger.info("Starting the bot...")
