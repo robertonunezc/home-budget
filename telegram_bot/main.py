@@ -127,7 +127,11 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             user = 'anonymous'
-        store_data_service.save(Receipt(user_id=user, image_url=url))
+        
+        # Create and save the receipt
+        receipt = Receipt(user_id=user, image_url=url)
+        receipt.save()
+        
         # download the file 
         # extract text from the file
         # save info to the database
