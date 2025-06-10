@@ -9,6 +9,7 @@ class ReceiptItem(BaseModel):
     name: str
     price: float
     quantity: Optional[int] = 1
+    category: Optional[str] = 'other'
 
 class Receipt(BaseModel):
     table_name: str = 'receipts'
@@ -48,13 +49,15 @@ class Receipt(BaseModel):
         
         # Ensure all datetime fields are strings
         for field in ['purchase_date', 'created_at', 'updated_at']:
-            if field in self and not isinstance(self[field], str):
-                self[field] = self[field].isoformat()
+            value = getattr(self, field, None)
+            if value is not None and not isinstance(value, str):
+                setattr(self, field, value.isoformat())
         
-        # Ensure total_amount is a string (DynamoDB requirement for Decimal)
-        if self.total_amount:
-            self.total_amount = str(self.total_amount)
+        # Prepare data for storage (convert total_amount to string for DynamoDB)
+        data_to_store = self.to_dict()
+        if 'total_amount' in data_to_store and data_to_store['total_amount'] is not None:
+            data_to_store['total_amount'] = str(data_to_store['total_amount'])
         
         store_data_service = StoreDataServiceFactory.create()
-        store_data_service.save(table_name=self.table_name, data=self.to_dict())
+        store_data_service.save(table_name=self.table_name, data=data_to_store)
         return self

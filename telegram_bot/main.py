@@ -129,6 +129,7 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user = 'anonymous'
         
         # Create and save the receipt
+        logger.info(f"Photo uploaded successfully! URL: {url}")
         receipt = Receipt(user_id=user, image_url=url)
         receipt.save()
         

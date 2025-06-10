@@ -1,7 +1,10 @@
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
-
+import logging
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -17,8 +20,7 @@ def encode_image_to_base64(image_path):
 # Prepare the API request
 def extract_receipt_text(image_path):
     base64_image = encode_image_to_base64(image_path)
-
-
+    logger.info(f"Extracting text from image: {image_path}")
     response = client.responses.create(
         model="gpt-4.1-mini",
         input=[
@@ -31,7 +33,7 @@ def extract_receipt_text(image_path):
                         "image_url": f"data:image/jpeg;base64,{base64_image}",
                     },
                 ],
-            }
+            } # type: ignore
         ],
     )
     return response.output_text
