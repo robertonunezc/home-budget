@@ -27,7 +27,9 @@ class Receipt(BaseModel):
         # Convert datetime objects to ISO format strings
         for field in ['purchase_date', 'created_at', 'updated_at']:
             if field in data and data[field]:
-                data[field] = data[field].isoformat()
+                # Only convert if it's a datetime object, not if it's already a string
+                if hasattr(data[field], 'isoformat'):
+                    data[field] = data[field].isoformat()
         return data
     
     @staticmethod
@@ -35,7 +37,14 @@ class Receipt(BaseModel):
         # Convert ISO format strings back to datetime objects
         for field in ['purchase_date', 'created_at', 'updated_at']:
             if field in data and data[field]:
-                data[field] = datetime.fromisoformat(data[field])
+                # Only convert if it's a string, not if it's already a datetime object
+                if isinstance(data[field], str):
+                    try:
+                        data[field] = datetime.fromisoformat(data[field])
+                    except ValueError:
+                        # If fromisoformat fails, try parsing with a different format
+                        # This handles cases where the string might have a different format
+                        pass
         return Receipt(**data)
     
     def save(self):
@@ -47,17 +56,22 @@ class Receipt(BaseModel):
         if not self.image_url:
             raise ValueError("Image URL is required")
         
-        # Ensure all datetime fields are strings
-        for field in ['purchase_date', 'created_at', 'updated_at']:
-            value = getattr(self, field, None)
-            if value is not None and not isinstance(value, str):
-                setattr(self, field, value.isoformat())
-        
-        # Prepare data for storage (convert total_amount to string for DynamoDB)
+        # Prepare data for storage
         data_to_store = self.to_dict()
+        
+        # Convert total_amount to string for DynamoDB
         if 'total_amount' in data_to_store and data_to_store['total_amount'] is not None:
             data_to_store['total_amount'] = str(data_to_store['total_amount'])
-        
         store_data_service = StoreDataServiceFactory.create()
         store_data_service.save(table_name=self.table_name, data=data_to_store)
         return self
+    def update(self, **kwargs):
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        
+        # Update timestamps
+        self.updated_at = datetime.now()
+        
+        # Save the updated receipt
+        return self.save()

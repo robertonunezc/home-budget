@@ -8,10 +8,12 @@ from services.store_data.store_data import StoreDataServiceFactory
 from entities.receipt import Receipt
 from jose import jwt
 from datetime import datetime, timedelta
+from gpt_extract import extract_receipt_text
 import os
 import logging
 import io
 import tempfile
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -132,10 +134,53 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Photo uploaded successfully! URL: {url}")
         receipt = Receipt(user_id=user, image_url=url)
         receipt.save()
-        
-        # download the file 
         # extract text from the file
-        # save info to the database
+        file_full_path = os.path.join(os.getcwd(), temp_file_path)
+        logger.info(f"Extracting text from the photo: {file_full_path}")
+        extracted_receipt = extract_receipt_text(file_full_path)
+        logger.info(f"Extracted from GPT: {extracted_receipt}")
+
+        # update receipt info to the database
+        receipt_formatted = json.loads(extracted_receipt)
+        logger.info(f"JSON formatted extracted: {receipt_formatted}")
+
+        """
+            {
+                "items": [
+                    {
+                    "name": "COFFEE",
+                    "price": 6.32
+                    },
+                    {
+                    "name": "BANANAS",
+                    "quantity": "3.300 lb",
+                    "unit_price": 0.54,
+                    "price": 1.78
+                    },
+                    {
+                    "name": "OM BN SZ MT",
+                    "price": 2.84
+                    },
+                    {
+                    "name": "CORN TORT",
+                    "price": 1.98
+                    },
+                    {
+                    "name": "CBT WCHXSH",
+                    "price": 9.97
+                    }
+                ],
+                "subtotal": 22.89,
+                "total": 22.89,
+                "debit_tend": 22.89,
+                "change_due": 0.00
+                }
+        """
+        receipt.update(
+            purchase_date=datetime.now(),
+            total_amount=receipt_formatted['total'],  
+            items=receipt_formatted['items'], 
+        )        
         # Delete the temporary file 
         os.unlink(temp_file_path)
         
