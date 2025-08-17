@@ -10,6 +10,7 @@ class ReceiptItem(BaseModel):
     price: float
     quantity: Optional[int] = 1
     category: Optional[str] = 'other'
+    
 
 class Receipt(BaseModel):
     table_name: str = 'receipts'

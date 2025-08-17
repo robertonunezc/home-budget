@@ -5,7 +5,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from services.upload.upload import UploadServiceFactory
 from services.authentication.authenticate import AuthenticationService
 from services.store_data.store_data import StoreDataServiceFactory
-from entities.receipt import Receipt
+from entities.receipt import Receipt, ReceiptItem
 from jose import jwt
 from datetime import datetime, timedelta
 from gpt_extract import extract_receipt_text
@@ -119,8 +119,6 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_name = f"{update.message.photo[-1].file_id}{file_extension}"
         url = upload_service.upload_file(temp_file_path,file_name)
         # save the file info to the database
-        store_data_service = StoreDataServiceFactory.create()
-
         if update.message:
             user = (
                 update.message.from_user.username or
@@ -139,7 +137,7 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Extracting text from the photo: {file_full_path}")
         extracted_receipt = extract_receipt_text(file_full_path)
         logger.info(f"Extracted from GPT: {extracted_receipt}")
-
+        extracted_receipt = extracted_receipt.replace('```json', '').replace('```', '').strip()
         # update receipt info to the database
         receipt_formatted = json.loads(extracted_receipt)
         logger.info(f"JSON formatted extracted: {receipt_formatted}")
@@ -176,10 +174,22 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "change_due": 0.00
                 }
         """
+        items: list[ReceiptItem] = []
+        if 'items' in receipt_formatted:
+            for item in receipt_formatted['items']:
+                item_name = item.get('name', 'Unknown Item')
+                item_price = float(item.get('price', 0.0))
+                item_quantity = int(item.get('quantity', 1)) if 'quantity' in item else 1
+                item_category = item.get('category', 'other') if 'category' in item else 'other'
+                
+                items.append(ReceiptItem(name=item_name, price=item_price, quantity=item_quantity, category=item_category))
+        else:
+            logger.warning("No items found in the extracted receipt data.")
+        
         receipt.update(
             purchase_date=datetime.now(),
-            total_amount=receipt_formatted['total'],  
-            items=receipt_formatted['items'], 
+            total_amount=float(receipt_formatted['total']) if 'total' in receipt_formatted else 0.0,  
+            items=items, 
         )        
         # Delete the temporary file 
         os.unlink(temp_file_path)

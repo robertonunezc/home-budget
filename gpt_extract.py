@@ -27,7 +27,7 @@ def extract_receipt_text(image_path):
             {
                 "role": "user",
                 "content": [
-                    { "type": "input_text", "text": "Extract all readable text from this receipt and try to structure it as a list of items  with name and price if possible in a JSON structure." },
+                    { "type": "input_text", "text": "Extract all readable text from this receipt and try to structure it as a list of items with name and price if possible in a JSON structure. Do your best to categorize each product and add a field named category to the item to store that information" },
                     {
                         "type": "input_image",
                         "image_url": f"data:image/jpeg;base64,{base64_image}",
