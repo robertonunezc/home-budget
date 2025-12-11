@@ -1,5 +1,10 @@
 #I want to create a telegram bot that upload photos using the upload service and authenticate users
 
+import sys
+import os
+# Add the parent directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from services.upload.upload import UploadServiceFactory
