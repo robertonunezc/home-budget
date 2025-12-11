@@ -1,0 +1,3 @@
+CREATE DATABASE IF NOT EXISTS spends_db;
+CREATE USER IF NOT EXISTS spends_user WITH PASSWORD 'password';
+GRANT ALL PRIVILEGES ON DATABASE spends_db TO spends_user;      

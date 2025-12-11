@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
-from services.store_data.store_data import StoreDataServiceFactory
+from services.store_data.store_data import StoreDataServiceFactory, ServiceType
 class ReceiptItem(BaseModel):
     name: str
     price: float
@@ -63,7 +63,7 @@ class Receipt(BaseModel):
         # Convert total_amount to string for DynamoDB
         if 'total_amount' in data_to_store and data_to_store['total_amount'] is not None:
             data_to_store['total_amount'] = str(data_to_store['total_amount'])
-        store_data_service = StoreDataServiceFactory.create()
+        store_data_service = StoreDataServiceFactory.create(service_type=ServiceType.POSTGRES)
         store_data_service.save(table_name=self.table_name, data=data_to_store)
         return self
     def update(self, **kwargs):
