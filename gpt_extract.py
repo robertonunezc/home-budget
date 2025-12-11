@@ -21,22 +21,36 @@ def encode_image_to_base64(image_path):
 def extract_receipt_text(image_path):
     base64_image = encode_image_to_base64(image_path)
     logger.info(f"Extracting text from image: {image_path}")
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    { "type": "input_text", "text": "Extract all readable text from this receipt and try to structure it as a list of items with name and price if possible in a JSON structure. Do your best to categorize each product and add a field named category to the item to store that information" },
-                    {
-                        "type": "input_image",
-                        "image_url": f"data:image/jpeg;base64,{base64_image}",
-                    },
-                ],
-            } # type: ignore
-        ],
-    )
-    return response.output_text
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Extract all readable text from this receipt and structure it as a JSON object with the following format: {\"items\": [{\"name\": \"item name\", \"price\": 0.00, \"quantity\": 1, \"category\": \"category name\"}], \"total\": 0.00}. Categorize each item (e.g., food, beverage, household, other). Return ONLY valid JSON, no markdown formatting."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=1000
+        )
+        
+        result = response.choices[0].message.content
+        logger.info(f"GPT extraction successful: {len(result)} characters")
+        return result
+    except Exception as e:
+        logger.error(f"GPT extraction failed: {str(e)}")
+        raise
 
 # Example usage
 if __name__ == "__main__":

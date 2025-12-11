@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from repositories.base_repository import BaseRepository
 from entities.receipt import Receipt, ReceiptItem
-from services.store_data.store_data import StoreDataInterface
+from services.store_data.store_data import StoreDataInterface, DynamoDBStoreDataService, PostgresStoreDataService
 
 
 logger = logging.getLogger(__name__)
@@ -54,17 +54,62 @@ class ReceiptRepository(BaseRepository[Receipt]):
         if not entity.image_url:
             raise ValueError("Image URL is required")
         
-        # Convert entity to dictionary for storage
-        data_to_store = self._to_dict(entity)
-        
         logger.info(f"Saving receipt {entity.receipt_id} to database")
         
-        # Save to database
-        self.store_service.save(table_name=self.table_name, data=data_to_store)
+        # Check if using PostgreSQL (which has separate tables for items)
+        if isinstance(self.store_service, PostgresStoreDataService):
+            self._save_postgres(entity)
+        else:
+            # DynamoDB stores items as embedded documents
+            data_to_store = self._to_dict(entity)
+            self.store_service.save(table_name=self.table_name, data=data_to_store)
         
         logger.info(f"Successfully saved receipt {entity.receipt_id}")
         
         return entity
+    
+    def _save_postgres(self, entity: Receipt) -> None:
+        """
+        Save receipt to PostgreSQL with separate items table.
+        
+        Args:
+            entity: The Receipt to save
+        """
+        # Save receipt without items
+        receipt_data = self._to_dict(entity, include_items=False)
+        self.store_service.save(table_name=self.table_name, data=receipt_data)
+        
+        # Save items separately if any exist
+        if entity.items:
+            self._save_receipt_items(entity.receipt_id, entity.items)
+    
+    def _save_receipt_items(self, receipt_id: str, items: List[ReceiptItem]) -> None:
+        """
+        Save receipt items to the receipt_items table.
+        
+        Args:
+            receipt_id: The receipt ID
+            items: List of receipt items
+        """
+        # First, delete existing items for this receipt (for update case)
+        try:
+            self.store_service.cursor.execute(
+                "DELETE FROM receipt_items WHERE receipt_id = %s",
+                (receipt_id,)
+            )
+        except Exception as e:
+            logger.warning(f"Could not delete existing items: {e}")
+        
+        # Insert new items
+        for item in items:
+            item_data = {
+                'receipt_id': receipt_id,
+                'name': item.name,
+                'price': float(item.price),
+                'quantity': item.quantity,
+                'category': item.category
+            }
+            self.store_service.save(table_name='receipt_items', data=item_data)
     
     def find_by_id(self, receipt_id: str) -> Optional[Receipt]:
         """
@@ -78,9 +123,14 @@ class ReceiptRepository(BaseRepository[Receipt]):
         """
         try:
             logger.info(f"Finding receipt by ID: {receipt_id}")
-            data = self.store_service.get({'receipt_id': receipt_id})
+            data = self.store_service.get(self.table_name, {'receipt_id': receipt_id})
             
             if data:
+                # If using PostgreSQL, load items separately
+                if isinstance(self.store_service, PostgresStoreDataService):
+                    items = self._load_receipt_items(receipt_id)
+                    data['items'] = items
+                
                 return self._to_entity(data)
             
             logger.info(f"Receipt {receipt_id} not found")
@@ -88,6 +138,35 @@ class ReceiptRepository(BaseRepository[Receipt]):
         except Exception as e:
             logger.error(f"Error finding receipt {receipt_id}: {str(e)}")
             raise
+    
+    def _load_receipt_items(self, receipt_id: str) -> List[Dict[str, Any]]:
+        """
+        Load receipt items from the receipt_items table.
+        
+        Args:
+            receipt_id: The receipt ID
+            
+        Returns:
+            List of item dictionaries
+        """
+        try:
+            self.store_service.cursor.execute(
+                "SELECT name, price, quantity, category FROM receipt_items WHERE receipt_id = %s",
+                (receipt_id,)
+            )
+            
+            columns = [desc[0] for desc in self.store_service.cursor.description]
+            rows = self.store_service.cursor.fetchall()
+            
+            items = []
+            for row in rows:
+                item_dict = dict(zip(columns, row))
+                items.append(item_dict)
+            
+            return items
+        except Exception as e:
+            logger.error(f"Error loading receipt items: {e}")
+            return []
     
     def find_by_user_id(self, user_id: str, limit: Optional[int] = None) -> List[Receipt]:
         """
@@ -139,7 +218,10 @@ class ReceiptRepository(BaseRepository[Receipt]):
         """
         try:
             logger.info(f"Deleting receipt {receipt_id}")
-            self.store_service.delete({'receipt_id': receipt_id})
+            
+            # For PostgreSQL, items will be deleted automatically due to CASCADE
+            self.store_service.delete(self.table_name, {'receipt_id': receipt_id})
+            
             logger.info(f"Successfully deleted receipt {receipt_id}")
             return True
         except Exception as e:
@@ -176,16 +258,61 @@ class ReceiptRepository(BaseRepository[Receipt]):
             logger.warning(f"Cannot update: Receipt {receipt_id} not found")
             return None
         
-        # Update fields
+        # Update fields in the entity
         for key, value in kwargs.items():
             if hasattr(receipt, key):
                 setattr(receipt, key, value)
         
         # Update timestamp
         receipt.updated_at = datetime.now()
+        kwargs['updated_at'] = receipt.updated_at
         
-        # Save and return
-        return self.save(receipt)
+        logger.info(f"Updating receipt {receipt_id} with fields: {list(kwargs.keys())}")
+        
+        # Check if using PostgreSQL (which has separate tables for items)
+        if isinstance(self.store_service, PostgresStoreDataService):
+            # Update receipt without items
+            receipt_data_to_update = {}
+            for key, value in kwargs.items():
+                if key != 'items':  # items are handled separately
+                    if key == 'total_amount':
+                        receipt_data_to_update[key] = str(value) if value is not None else '0.0'
+                    elif key in ['purchase_date', 'created_at', 'updated_at']:
+                        if hasattr(value, 'isoformat'):
+                            receipt_data_to_update[key] = value.isoformat()
+                        else:
+                            receipt_data_to_update[key] = value
+                    elif key == 'status':
+                        # Convert enum to string
+                        receipt_data_to_update[key] = value.value if hasattr(value, 'value') else str(value)
+                    else:
+                        receipt_data_to_update[key] = value
+            
+            # Update the receipt table
+            if receipt_data_to_update:
+                self.store_service.update(
+                    table_name=self.table_name,
+                    key={'receipt_id': receipt_id},
+                    data=receipt_data_to_update
+                )
+            
+            # Update items if provided
+            if 'items' in kwargs and kwargs['items']:
+                self._save_receipt_items(receipt_id, kwargs['items'])
+        else:
+            # DynamoDB: update with items embedded
+            receipt_data = self._to_dict(receipt)
+            # Remove receipt_id from data (it's the key)
+            receipt_data_to_update = {k: v for k, v in receipt_data.items() if k != 'receipt_id'}
+            
+            self.store_service.update(
+                table_name=self.table_name,
+                key={'receipt_id': receipt_id},
+                data=receipt_data_to_update
+            )
+        
+        logger.info(f"Successfully updated receipt {receipt_id}")
+        return receipt
     
     def _to_entity(self, data: Dict[str, Any]) -> Receipt:
         """
@@ -209,6 +336,11 @@ class ReceiptRepository(BaseRepository[Receipt]):
         if 'total_amount' in data and isinstance(data['total_amount'], str):
             data['total_amount'] = Decimal(data['total_amount'])
         
+        # Convert status string to ReceiptStatus enum if needed
+        if 'status' in data and isinstance(data['status'], str):
+            from entities.receipt import ReceiptStatus
+            data['status'] = ReceiptStatus(data['status'])
+        
         # Convert items dict to ReceiptItem objects if needed
         if 'items' in data and data['items']:
             if isinstance(data['items'], list) and data['items']:
@@ -218,17 +350,19 @@ class ReceiptRepository(BaseRepository[Receipt]):
         
         return Receipt(**data)
     
-    def _to_dict(self, entity: Receipt) -> Dict[str, Any]:
+    def _to_dict(self, entity: Receipt, include_items: bool = True) -> Dict[str, Any]:
         """
         Convert Receipt entity to dictionary for database storage.
         
         Args:
             entity: The Receipt entity
+            include_items: Whether to include items (False for PostgreSQL receipts table)
             
         Returns:
             Dictionary suitable for database storage
         """
-        data = entity.model_dump()
+        # Get all model fields, excluding any that shouldn't be stored
+        data = entity.model_dump(exclude={'table_name'} if hasattr(entity, 'table_name') else None)
         
         # Convert datetime objects to ISO format strings
         for field in ['purchase_date', 'created_at', 'updated_at']:
@@ -240,7 +374,21 @@ class ReceiptRepository(BaseRepository[Receipt]):
         if 'total_amount' in data and data['total_amount'] is not None:
             data['total_amount'] = str(data['total_amount'])
         
-        # Remove table_name from data if present (it's a class attribute, not data)
-        data.pop('table_name', None)
+        # Define allowed fields based on whether items should be included
+        if include_items:
+            # DynamoDB: include items as embedded documents
+            allowed_fields = {
+                'receipt_id', 'user_id', 'purchase_date', 'total_amount',
+                'items', 'image_url', 'status', 'created_at', 'updated_at'
+            }
+        else:
+            # PostgreSQL: exclude items (they're in a separate table)
+            allowed_fields = {
+                'receipt_id', 'user_id', 'purchase_date', 'total_amount',
+                'image_url', 'status', 'created_at', 'updated_at'
+            }
+        
+        # Filter to only allowed fields
+        data = {key: value for key, value in data.items() if key in allowed_fields}
         
         return data

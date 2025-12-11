@@ -5,6 +5,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
+
+
+class ReceiptStatus(str, Enum):
+    """Receipt processing status."""
+    PENDING = 'pending'         # Uploaded, awaiting OCR extraction
+    PROCESSING = 'processing'   # Currently extracting data
+    COMPLETED = 'completed'     # Successfully processed
+    FAILED = 'failed'          # Extraction or processing failed
 
 
 class ReceiptItem(BaseModel):
@@ -28,6 +37,7 @@ class Receipt(BaseModel):
     total_amount: Decimal = Decimal(0.0)
     items: List[ReceiptItem] = Field(default_factory=list)
     image_url: str
+    status: ReceiptStatus = Field(default=ReceiptStatus.PENDING)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     

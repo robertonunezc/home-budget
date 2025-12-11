@@ -15,11 +15,15 @@ class StoreDataInterface(ABC):
         pass
 
     @abstractmethod
-    def get(self, data):
+    def get(self, table_name: str, data: dict):
         pass
 
     @abstractmethod
-    def delete(self, data):
+    def update(self, table_name: str, key: dict, data: dict):
+        pass
+
+    @abstractmethod
+    def delete(self, table_name: str, data: dict):
         pass
     
 class ServiceType(Enum):
@@ -93,13 +97,35 @@ class PostgresStoreDataService(StoreDataInterface):
             logger.error(f"Failed to save data to PostgreSQL: {str(e)}")
             raise
     
-    def get(self, data: dict):
+    def update(self, table_name: str, key: dict, data: dict):
+        try:
+            # Build SET clause for UPDATE
+            set_clause = ', '.join([f"{k} = %s" for k in data.keys()])
+            # Build WHERE clause from key
+            where_clause = ' AND '.join([f"{k} = %s" for k in key.keys()])
+            
+            values = tuple(data.values()) + tuple(key.values())
+            
+            query = f"UPDATE {table_name} SET {set_clause} WHERE {where_clause}"
+            logger.info(f"Attempting to update data in PostgreSQL: {data}")
+            
+            self.cursor.execute(query, values)
+            self.connection.commit()
+            
+            logger.info(f"Successfully updated data in PostgreSQL")
+            return data
+        except Exception as e:
+            self.connection.rollback()
+            logger.error(f"Failed to update data in PostgreSQL: {str(e)}")
+            raise
+    
+    def get(self, table_name: str, data: dict):
         try:
             # Assuming data is a dict with column-value pairs for WHERE clause
             conditions = ' AND '.join([f"{key} = %s" for key in data.keys()])
             values = tuple(data.values())
             
-            query = f"SELECT * FROM table_name WHERE {conditions}"
+            query = f"SELECT * FROM {table_name} WHERE {conditions}"
             self.cursor.execute(query, values)
             
             columns = [desc[0] for desc in self.cursor.description]
@@ -112,12 +138,12 @@ class PostgresStoreDataService(StoreDataInterface):
             logger.error(f"Failed to retrieve data from PostgreSQL: {str(e)}")
             raise
     
-    def delete(self, data: dict):
+    def delete(self, table_name: str, data: dict):
         try:
             conditions = ' AND '.join([f"{key} = %s" for key in data.keys()])
             values = tuple(data.values())
             
-            query = f"DELETE FROM table_name WHERE {conditions}"
+            query = f"DELETE FROM {table_name} WHERE {conditions}"
             logger.info(f"Attempting to delete data from PostgreSQL: {data}")
             
             self.cursor.execute(query, values)
@@ -166,9 +192,35 @@ class DynamoDBStoreDataService(StoreDataInterface):
             logger.error(f"Failed to save data to DynamoDB: {str(e)}")
             raise
     
-    def get(self, data):
-        response = self.table.get_item(Key=data)
+    def update(self, table_name: str, key: dict, data: dict):
+        try:
+            table = self.dynamodb.Table(table_name)
+            
+            # Build update expression
+            update_expression = "SET " + ", ".join([f"#{k} = :{k}" for k in data.keys()])
+            expression_attribute_names = {f"#{k}": k for k in data.keys()}
+            expression_attribute_values = {f":{k}": v for k, v in data.items()}
+            
+            logger.info(f"Attempting to update data in DynamoDB: {data}")
+            
+            table.update_item(
+                Key=key,
+                UpdateExpression=update_expression,
+                ExpressionAttributeNames=expression_attribute_names,
+                ExpressionAttributeValues=expression_attribute_values
+            )
+            
+            logger.info(f"Successfully updated data in DynamoDB")
+            return data
+        except Exception as e:
+            logger.error(f"Failed to update data in DynamoDB: {str(e)}")
+            raise
+    
+    def get(self, table_name: str, data: dict):
+        table = self.dynamodb.Table(table_name)
+        response = table.get_item(Key=data)
         return response.get('Item')
     
-    def delete(self, data):
-        self.table.delete_item(Key=data)
+    def delete(self, table_name: str, data: dict):
+        table = self.dynamodb.Table(table_name)
+        table.delete_item(Key=data)
