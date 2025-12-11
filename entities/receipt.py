@@ -1,11 +1,16 @@
 # Receipt entity to store the receipt information
+# This is a pure business logic entity with no database dependencies
 import uuid
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
-from services.store_data.store_data import StoreDataServiceFactory, ServiceType
+
+
 class ReceiptItem(BaseModel):
+    """
+    Represents a single item in a receipt.
+    """
     name: str
     price: float
     quantity: Optional[int] = 1
@@ -13,7 +18,10 @@ class ReceiptItem(BaseModel):
     
 
 class Receipt(BaseModel):
-    table_name: str = 'receipts'
+    """
+    Receipt entity representing a purchase receipt with items.
+    Contains only business logic - no database operations.
+    """
     receipt_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     purchase_date: datetime = Field(default_factory=datetime.now)
@@ -22,57 +30,98 @@ class Receipt(BaseModel):
     image_url: str
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-
-    def to_dict(self):
-        data = self.model_dump()
-        # Convert datetime objects to ISO format strings
-        for field in ['purchase_date', 'created_at', 'updated_at']:
-            if field in data and data[field]:
-                # Only convert if it's a datetime object, not if it's already a string
-                if hasattr(data[field], 'isoformat'):
-                    data[field] = data[field].isoformat()
-        return data
     
-    @staticmethod
-    def from_dict(data: dict):
-        # Convert ISO format strings back to datetime objects
-        for field in ['purchase_date', 'created_at', 'updated_at']:
-            if field in data and data[field]:
-                # Only convert if it's a string, not if it's already a datetime object
-                if isinstance(data[field], str):
-                    try:
-                        data[field] = datetime.fromisoformat(data[field])
-                    except ValueError:
-                        # If fromisoformat fails, try parsing with a different format
-                        # This handles cases where the string might have a different format
-                        pass
-        return Receipt(**data)
+    # Business logic methods
     
-    def save(self):
-         # Validate required fields
-        if not self.receipt_id:
-            raise ValueError("Receipt ID is required")
-        if not self.user_id:
-            raise ValueError("User ID is required")
-        if not self.image_url:
-            raise ValueError("Image URL is required")
+    def add_item(self, item: ReceiptItem) -> None:
+        """
+        Add an item to the receipt and update the total.
         
-        # Prepare data for storage
-        data_to_store = self.to_dict()
+        Args:
+            item: The receipt item to add
+        """
+        self.items.append(item)
+        self.calculate_total()
+    
+    def remove_item(self, item_name: str) -> bool:
+        """
+        Remove an item from the receipt by name.
         
-        # Convert total_amount to string for DynamoDB
-        if 'total_amount' in data_to_store and data_to_store['total_amount'] is not None:
-            data_to_store['total_amount'] = str(data_to_store['total_amount'])
-        store_data_service = StoreDataServiceFactory.create(service_type=ServiceType.POSTGRES)
-        store_data_service.save(table_name=self.table_name, data=data_to_store)
-        return self
-    def update(self, **kwargs):
+        Args:
+            item_name: The name of the item to remove
+            
+        Returns:
+            True if item was removed, False if not found
+        """
+        initial_length = len(self.items)
+        self.items = [item for item in self.items if item.name != item_name]
+        
+        if len(self.items) < initial_length:
+            self.calculate_total()
+            return True
+        return False
+    
+    def calculate_total(self) -> Decimal:
+        """
+        Calculate and update the total amount from all items.
+        
+        Returns:
+            The calculated total
+        """
+        total = Decimal(0)
+        for item in self.items:
+            total += Decimal(str(item.price)) * item.quantity
+        
+        self.total_amount = total
+        return total
+    
+    def update_fields(self, **kwargs) -> None:
+        """
+        Update receipt fields.
+        
+        Args:
+            **kwargs: Fields to update
+        """
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
         
-        # Update timestamps
+        # Always update the timestamp when fields change
         self.updated_at = datetime.now()
+    
+    def is_valid(self) -> bool:
+        """
+        Validate that the receipt has all required fields.
         
-        # Save the updated receipt
-        return self.save()
+        Returns:
+            True if valid, False otherwise
+        """
+        return bool(self.receipt_id and self.user_id and self.image_url)
+    
+    def get_items_by_category(self, category: str) -> List[ReceiptItem]:
+        """
+        Get all items in a specific category.
+        
+        Args:
+            category: The category to filter by
+            
+        Returns:
+            List of items in the category
+        """
+        return [item for item in self.items if item.category == category]
+    
+    def get_summary(self) -> dict:
+        """
+        Get a summary of the receipt.
+        
+        Returns:
+            Dictionary with receipt summary information
+        """
+        return {
+            'receipt_id': self.receipt_id,
+            'user_id': self.user_id,
+            'purchase_date': self.purchase_date,
+            'total_amount': float(self.total_amount),
+            'item_count': len(self.items),
+            'categories': list(set(item.category for item in self.items))
+        }

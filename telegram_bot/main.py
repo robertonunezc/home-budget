@@ -9,8 +9,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from services.upload.upload import UploadServiceFactory
 from services.authentication.authenticate import AuthenticationService
-from services.store_data.store_data import StoreDataServiceFactory
+from services.store_data.store_data import ServiceType
 from entities.receipt import Receipt, ReceiptItem
+from repositories.repository_factory import RepositoryFactory
 from jose import jwt
 from datetime import datetime, timedelta
 from gpt_extract import extract_receipt_text
@@ -29,6 +30,9 @@ ALLOWED_USERS = os.getenv("ALLOWED_USERS").split(",")
 # Initialize the services
 upload_service = UploadServiceFactory.create()
 auth_service = AuthenticationService(secret_key=os.getenv("JWT_SECRET"))
+
+# Initialize repository (using PostgreSQL as configured in the original code)
+receipt_repository = RepositoryFactory.create_receipt_repository(service_type=ServiceType.POSTGRES)
 
 # Define the start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -136,7 +140,8 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Create and save the receipt
         logger.info(f"Photo uploaded successfully! URL: {url}")
         receipt = Receipt(user_id=user, image_url=url)
-        receipt.save()
+        receipt_repository.save(receipt)
+        
         # extract text from the file
         file_full_path = os.path.join(os.getcwd(), temp_file_path)
         logger.info(f"Extracting text from the photo: {file_full_path}")
@@ -191,11 +196,16 @@ async def upload_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             logger.warning("No items found in the extracted receipt data.")
         
-        receipt.update(
+        # Update receipt fields using business logic methods
+        receipt.update_fields(
             purchase_date=datetime.now(),
             total_amount=float(receipt_formatted['total']) if 'total' in receipt_formatted else 0.0,  
             items=items, 
-        )        
+        )
+        
+        # Save the updated receipt through repository
+        receipt_repository.save(receipt)
+        
         # Delete the temporary file 
         os.unlink(temp_file_path)
         
